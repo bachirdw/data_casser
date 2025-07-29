@@ -1,17 +1,18 @@
-# app.py (Version Finale de Production - Rectifiée avec lambda)
+# app.py (Version Finale avec Interface Streamlit)
 # ----------------------------------------------------------------------
-# Ce script lit le fichier Excel, nettoie les colonnes spécifiées
-# en utilisant la syntaxe exacte .apply(lambda ...), et crée un
-# nouveau fichier Excel complet et corrigé.
+# Une application web simple pour nettoyer les problèmes d'encodage
+# dans des fichiers Excel, comme demandé.
 # ----------------------------------------------------------------------
 
+import streamlit as st
 import pandas as pd
+from io import BytesIO  # Nécessaire pour créer le fichier en mémoire pour le téléchargement
 
-# --- La fonction de correction validée (elle ne change pas) ---
+# --- La fonction de correction que nous avons validée ---
+# On la place en haut du script pour qu'elle soit disponible pour l'application.
 def corriger_texte_simple(text):
     """
-    Corrige les problèmes d'encodage les plus courants (ex: 'biÃ¨re' -> 'bière').
-    Prend en entrée une chaîne de caractères et retourne la version corrigée.
+    Corrige du problèmes d'encodage (ex: 'biÃ¨re' -> 'bière').
     """
     if not isinstance(text, str):
         return text
@@ -20,44 +21,91 @@ def corriger_texte_simple(text):
     except (UnicodeEncodeError, UnicodeDecodeError):
         return text
 
-# --- Paramètres de Production ---
-FICHIER_ENTREE = 'donnees_cassees.xlsx'
-FICHIER_SORTIE = 'donnees_corrigees.xlsx'
-COLONNES_A_NETTOYER = ['search_term', 'category', 'product_name']
+# --- Fonction utilitaire pour préparer le fichier Excel pour le téléchargement ---
+def to_excel(df):
+    """Convertit un DataFrame en un fichier Excel en mémoire (bytes)."""
+    output = BytesIO()
+    # On utilise 'xlsxwriter' comme moteur pour écrire dans le buffer mémoire
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Donnees_Corrigees')
+    # On récupère les données binaires du fichier Excel créé
+    processed_data = output.getvalue()
+    return processed_data
 
 
-print("--- Lancement du script de production ---")
+# ======================================================================
+# --- INTERFACE DE L'APPLICATION STREAMLIT ---
+# ======================================================================
 
-try:
-    # --- Étape 1 : Lecture du fichier Excel d'entrée ---
-    print(f"Lecture du fichier : '{FICHIER_ENTREE}'...")
-    df = pd.read_excel(FICHIER_ENTREE)
-    print("✅ Fichier lu avec succès.")
+# Configuration de la page
+st.set_page_config(layout="wide", page_title="Correcteur de Fichiers")
 
-    # --- Étape 2 : Nettoyage des données sur toutes les lignes ---
-    print(f"Nettoyage des colonnes : {COLONNES_A_NETTOYER}...")
-    for colonne in COLONNES_A_NETTOYER:
-        if colonne in df.columns:
-            nouvelle_colonne = f"{colonne}_fixed"
-            print(f"  -> Traitement de '{colonne}'...")
-            
-            # --- LA LIGNE MODIFIÉE ---
-            # On utilise maintenant une fonction lambda pour appeler notre fonction de correction.
-            # C'est la syntaxe exacte qui était dans la demande.
-            df[nouvelle_colonne] = df[colonne].apply(lambda x: corriger_texte_simple(x))
-            
-        else:
-            print(f"  -> ATTENTION : La colonne '{colonne}' n'a pas été trouvée et a été ignorée.")
-    print("✅ Nettoyage terminé.")
+# On crée deux colonnes : une petite pour le logo, une grande pour le titre.
+# Le ratio [1, 5] signifie que la deuxième colonne sera 5 fois plus large que la première.
+col1, col2 = st.columns([1, 5])
 
-    # --- Étape 3 : Export du DataFrame complet dans un nouveau fichier Excel ---
-    print(f"Exportation du fichier complet vers '{FICHIER_SORTIE}'...")
-    df.to_excel(FICHIER_SORTIE, index=False, engine='openpyxl')
-    print("✅ Exportation réussie !")
+with col1:
+    st.image("unlimitail_logo.png", width=1000) 
+
+with col2:
+    st.title("Outil de Génération de Rapports ")
+    st.write("Application pour nettoyer les fichiers Excel")
+# --- FIN DE LA MODIFICATION ---
+
+
+st.header("1. Téléchargez votre fichier")
+# --- Widget pour le téléchargement du fichier ---
+uploaded_file = st.file_uploader("Choisissez un fichier Excel à nettoyer", type=['xlsx'], label_visibility="collapsed")
+
+
+if uploaded_file is not None:
+    with st.spinner('Lecture du fichier Excel...'):
+        df = pd.read_excel(uploaded_file)
     
-    print("\n--- Opération de production terminée avec succès ! ---")
+    st.success("✅ Fichier lu avec succès !")
+    st.header("2. Aperçu des données originales")
+    st.dataframe(df.head())
 
-except FileNotFoundError:
-    print(f"ERREUR : Le fichier d'entrée '{FICHIER_ENTREE}' est introuvable.")
-except Exception as e:
-    print(f"\nUNE ERREUR INATTENDUE EST SURVENUE : {e}")
+    with st.sidebar:
+        st.header("⚙️ Options")
+        
+        colonnes_a_corriger = st.multiselect(
+            "Choisissez les colonnes à nettoyer",
+            options=df.columns,
+            default=None
+        )
+        
+        appliquer_correction = st.checkbox("Oui, remplacer les caractères spéciaux")
+
+    if appliquer_correction and colonnes_a_corriger:
+        
+        st.header("3. Résultats de la Correction")
+        df_corrige = df.copy()
+
+        with st.spinner("Application de la correction..."):
+            for colonne in colonnes_a_corriger:
+                nouvelle_colonne = f"{colonne}_fixed"
+                df_corrige[nouvelle_colonne] = df[colonne].apply(corriger_texte_simple)
+
+        st.success("✅ Correction appliquée !")
+        
+        colonnes_a_afficher = []
+        for col in colonnes_a_corriger:
+             colonnes_a_afficher.append(col)
+             colonnes_a_afficher.append(f"{col}_fixed")
+        st.dataframe(df_corrige[colonnes_a_afficher].head(20))
+
+        st.header("4. Téléchargement")
+        st.write("Le fichier complet avec les nouvelles colonnes corrigées est prêt.")
+
+        donnees_excel_a_telecharger = to_excel(df_corrige)
+
+        st.download_button(
+            label="📥 Télécharger le fichier corrigé",
+            data=donnees_excel_a_telecharger,
+            file_name=f"corrige_{uploaded_file.name}",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    elif appliquer_correction and not colonnes_a_corriger:
+        st.warning("Veuillez choisir au moins une colonne à corriger dans la barre latérale.")
