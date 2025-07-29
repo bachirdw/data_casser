@@ -64,7 +64,7 @@ if uploaded_file is not None:
     
     st.success("✅ Fichier lu avec succès !")
     st.header("2. Aperçu des données originales")
-    st.dataframe(df.head())
+    st.dataframe(df)
 
     with st.sidebar:
         st.header("⚙️ Options")
